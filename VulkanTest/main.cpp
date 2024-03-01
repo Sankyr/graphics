@@ -1,6 +1,7 @@
 #include "HelloTriangleApplication.h"
 
 #include <iostream>
+#include <cstdlib>
 
 int main() {
     HelloTriangleApplication app;
@@ -11,6 +12,8 @@ int main() {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
+
+    
 
     return EXIT_SUCCESS;
 }

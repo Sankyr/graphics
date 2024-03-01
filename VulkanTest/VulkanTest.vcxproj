@@ -136,15 +136,15 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;NOMINMAX;GLFW_EXPOSE_NATIVE_WIN32;GLM_ENABLE_EXPERIMENTAL;GLM_FORCE_DEPTH_ZERO_TO_ONE;GLM_FORCE_RADIANS;STB_IMAGE_IMPLEMENTATION;TINYOBJLOADER_IMPLEMENTATION;VK_USE_PLATFORM_WIN32_KHR;VULKAN_HPP_NO_CONSTRUCTORS;VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\Projects\C++\Graphics Libs\tiny_obj_loader;D:\Projects\C++\Graphics Libs\stb-master;D:\Projects\C++\Graphics Libs\glm;D:\Projects\C++\Graphics Libs\glfw-3.3.2.bin.WIN64\include;C:\VulkanSDK\1.2.135.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>D:\Projects\C++\Graphics Libs\tiny_obj_loader;D:\Projects\C++\Graphics Libs\stb-master;D:\Projects\C++\Graphics Libs\glm;D:\Projects\C++\Graphics Libs\glfw-3.3.2.bin.WIN64\include;C:\VulkanSDK\1.3.268.0\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\Projects\C++\Graphics Libs\glfw-3.3.2.bin.WIN64\lib-vc2019;C:\VulkanSDK\1.2.135.0\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>D:\Projects\C++\Graphics Libs\glfw-3.3.2.bin.WIN64\lib-vc2019;C:\VulkanSDK\1.3.268.0\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
@@ -183,12 +183,25 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AllocatedGPUMemory.cpp" />
+    <ClCompile Include="DebugMessenger.cpp" />
+    <ClCompile Include="DeviceQueries.cpp" />
+    <ClCompile Include="FrameRenderingInfo.cpp" />
     <ClCompile Include="HelloTriangleApplication.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="SingleTimeCommands.cpp" />
+    <ClCompile Include="SwapChainSetupInfo.cpp" />
     <ClCompile Include="Vertex.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AllocatedGPUMemory.h" />
+    <ClInclude Include="DebugMessenger.h" />
+    <ClInclude Include="DeviceQueries.h" />
+    <ClInclude Include="FrameRenderingInfo.h" />
     <ClInclude Include="HelloTriangleApplication.h" />
+    <ClInclude Include="SingleTimeCommands.h" />
+    <ClInclude Include="SwapChainSetupInfo.h" />
+    <ClInclude Include="UniformBufferObject.h" />
     <ClInclude Include="Vertex.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
