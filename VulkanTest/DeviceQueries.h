@@ -31,3 +31,5 @@ vk::Format findSupportedFormat(const vk::PhysicalDevice& physicalDevice, const s
 vk::Format findDepthFormat(const vk::PhysicalDevice& physicalDevice);
 
 uint32_t findMemoryType(const vk::PhysicalDevice& physicalDevice, uint32_t typeFilter, const vk::MemoryPropertyFlags& properties);
+
+vk::SampleCountFlagBits getMaxUsableSampleCount(const vk::PhysicalDevice& physicalDevice);

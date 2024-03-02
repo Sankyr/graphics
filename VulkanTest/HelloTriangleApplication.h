@@ -81,6 +81,9 @@ private:
     vk::Sampler textureSampler_;
     std::unique_ptr<AllocatedImage> depthImage_;
     vk::Format depthFormat_;
+    std::unique_ptr<AllocatedImage> colorImage_;
+    vk::SampleCountFlagBits msaaSamples_;
+
     size_t frameNum_ = 0;
     bool framebufferResized_ = false;
     int count = 0;

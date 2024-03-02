@@ -270,10 +270,10 @@ vk::ShaderModule createShaderModule(const vk::Device& device, const std::vector<
     return device.createShaderModule(createInfo);
 }
 
-vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swapChainImageFormat, const vk::Format &depthFormat) {
+vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swapChainImageFormat, const vk::Format &depthFormat, const vk::SampleCountFlagBits &msaaSamples) {
     vk::AttachmentDescription colorAttachment = {
         .format = swapChainImageFormat,
-        .samples = vk::SampleCountFlagBits::e1,
+        .samples = msaaSamples,
 
         .loadOp = vk::AttachmentLoadOp::eClear,
         .storeOp = vk::AttachmentStoreOp::eStore,
@@ -282,7 +282,7 @@ vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swap
         .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
 
         .initialLayout = vk::ImageLayout::eUndefined,
-        .finalLayout = vk::ImageLayout::ePresentSrcKHR,
+        .finalLayout = vk::ImageLayout::eColorAttachmentOptimal,
     };
 
     vk::AttachmentReference colorAttachmentRef = {
@@ -292,7 +292,7 @@ vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swap
 
     vk::AttachmentDescription depthAttachment = {
         .format = depthFormat,
-        .samples = vk::SampleCountFlagBits::e1,
+        .samples = msaaSamples,
         .loadOp = vk::AttachmentLoadOp::eClear,
         .storeOp = vk::AttachmentStoreOp::eDontCare,
         .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
@@ -306,10 +306,30 @@ vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swap
         .layout = vk::ImageLayout::eDepthStencilAttachmentOptimal
     };
 
+    vk::AttachmentDescription colorAttachmentResolve = {
+        .format = swapChainImageFormat,
+        .samples = vk::SampleCountFlagBits::e1,
+
+        .loadOp = vk::AttachmentLoadOp::eDontCare,
+        .storeOp = vk::AttachmentStoreOp::eStore,
+
+        .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
+        .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
+
+        .initialLayout = vk::ImageLayout::eUndefined,
+        .finalLayout = vk::ImageLayout::ePresentSrcKHR,
+    };
+
+    vk::AttachmentReference colorAttachmentResolveRef = {
+        .attachment = 2,
+        .layout = vk::ImageLayout::eColorAttachmentOptimal,
+    };
+
     vk::SubpassDescription subpass = {
         .pipelineBindPoint = vk::PipelineBindPoint::eGraphics,
         .colorAttachmentCount = 1,
         .pColorAttachments = &colorAttachmentRef,
+        .pResolveAttachments = &colorAttachmentResolveRef,
         .pDepthStencilAttachment = &depthAttachmentRef,
     };
 
@@ -323,7 +343,7 @@ vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swap
         .srcAccessMask = {},
         .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eDepthStencilAttachmentWrite,
     };
-    std::array<vk::AttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
+    std::array<vk::AttachmentDescription, 3> attachments = { colorAttachment, depthAttachment, colorAttachmentResolve };
     vk::RenderPassCreateInfo renderPassInfo = {
         .attachmentCount = static_cast<uint32_t>(attachments.size()),
         .pAttachments = attachments.data(),
@@ -366,7 +386,7 @@ std::vector<char> readFile(const std::string& filename) {
     return buffer;
 }
 
-vk::Pipeline createGraphicsPipeline(const vk::Device& device, const vk::Extent2D& swapChainExtent, const vk::PipelineLayout& pipelineLayout, const vk::RenderPass& renderPass) {
+vk::Pipeline createGraphicsPipeline(const vk::Device& device, const vk::Extent2D& swapChainExtent, const vk::PipelineLayout& pipelineLayout, const vk::RenderPass& renderPass, const vk::SampleCountFlagBits &msaaSamples) {
     auto vertShaderCode = readFile("compiledShaders/shader_vert.spv");
     auto fragShaderCode = readFile("compiledShaders/shader_frag.spv");
     // auto vertShaderCode = readFile("compiledShaders/rayTracer_vert.spv");
@@ -439,7 +459,7 @@ vk::Pipeline createGraphicsPipeline(const vk::Device& device, const vk::Extent2D
     };
 
     vk::PipelineMultisampleStateCreateInfo multisampling = {
-        .rasterizationSamples = vk::SampleCountFlagBits::e1,
+        .rasterizationSamples = msaaSamples,
         .sampleShadingEnable = vk::False,
         .minSampleShading = 1.0f, // Optional
         .pSampleMask = nullptr, // Optional
@@ -522,13 +542,14 @@ vk::Pipeline createGraphicsPipeline(const vk::Device& device, const vk::Extent2D
     return graphicsPipeline.value;
 }
 
-std::vector<vk::Framebuffer> createFramebuffers(const vk::Device& device, const std::vector<vk::ImageView>& swapChainImageViews, const vk::ImageView &depthImageView, const vk::RenderPass& renderPass, const vk::Extent2D& swapChainExtent) {
+std::vector<vk::Framebuffer> createFramebuffers(const vk::Device& device, const std::vector<vk::ImageView>& swapChainImageViews, const vk::ImageView& colorImageView, const vk::ImageView &depthImageView, const vk::RenderPass& renderPass, const vk::Extent2D& swapChainExtent) {
     std::vector<vk::Framebuffer> swapChainFramebuffers(swapChainImageViews.size());
 
     for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-        std::array<vk::ImageView, 2> attachments = {
+        std::array<vk::ImageView, 3> attachments = {
+            colorImageView,
+            depthImageView,
             swapChainImageViews[i],
-            depthImageView
         };
 
         vk::FramebufferCreateInfo framebufferInfo = {
@@ -637,7 +658,7 @@ void transitionImageLayout(SingleTimeCommands singleTimeCommands, const vk::Imag
     singleTimeCommands.submit();
 }
 
-std::unique_ptr<AllocatedImage> createDepthResources(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const vk::Format& depthFormat, const vk::Extent2D& swapChainExtent, const vk::CommandPool& commandPool, const vk::Queue& graphicsQueue) {
+std::unique_ptr<AllocatedImage> createDepthResources(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const vk::Format& depthFormat, const vk::Extent2D& swapChainExtent, const vk::SampleCountFlagBits& msaaSamples, const vk::CommandPool& commandPool, const vk::Queue& graphicsQueue) {
     vk::ImageCreateInfo imageInfo = {
         .imageType = vk::ImageType::e2D,
         .format = depthFormat,
@@ -648,7 +669,7 @@ std::unique_ptr<AllocatedImage> createDepthResources(const vk::PhysicalDevice& p
             },
         .mipLevels = 1,
         .arrayLayers = 1,
-        .samples = vk::SampleCountFlagBits::e1,
+        .samples = msaaSamples,
         .tiling = vk::ImageTiling::eOptimal,
         .usage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
         .sharingMode = vk::SharingMode::eExclusive,
@@ -675,6 +696,46 @@ std::unique_ptr<AllocatedImage> createDepthResources(const vk::PhysicalDevice& p
 
     transitionImageLayout(SingleTimeCommands(device, commandPool, graphicsQueue), depthImage->image, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, 1, depthFormat);
     return depthImage;
+}
+
+std::unique_ptr<AllocatedImage> createColorResources(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const vk::Format& swapChainImageFormat, const vk::Extent2D& swapChainExtent, const vk::SampleCountFlagBits &msaaSamples, const vk::CommandPool& commandPool, const vk::Queue& graphicsQueue) {
+    vk::ImageCreateInfo imageInfo = {
+        .imageType = vk::ImageType::e2D,
+        .format = swapChainImageFormat,
+        .extent = {
+            .width = swapChainExtent.width,
+            .height = swapChainExtent.height,
+            .depth = 1,
+            },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = msaaSamples,
+        .tiling = vk::ImageTiling::eOptimal,
+        .usage = vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
+        .sharingMode = vk::SharingMode::eExclusive,
+        .initialLayout = vk::ImageLayout::eUndefined,
+    };
+    vk::ImageViewCreateInfo viewInfo{
+        .viewType = vk::ImageViewType::e2D,
+        .format = swapChainImageFormat,
+        .components = {
+            .r = vk::ComponentSwizzle::eIdentity,
+            .g = vk::ComponentSwizzle::eIdentity,
+            .b = vk::ComponentSwizzle::eIdentity,
+            .a = vk::ComponentSwizzle::eIdentity,
+        },
+        .subresourceRange = {
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    std::unique_ptr<AllocatedImage> colorImage = std::make_unique<AllocatedImage>(physicalDevice, device, imageInfo, vk::MemoryPropertyFlagBits::eDeviceLocal, viewInfo);
+
+    // transitionImageLayout(SingleTimeCommands(device, commandPool, graphicsQueue), colorImage->image, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, 1, swapChainImageFormat);
+    return colorImage;
 }
 
 void copyBufferToImage(SingleTimeCommands singleTimeCommands, const vk::Buffer& buffer, const VkImage& image, const uint32_t& width, const uint32_t& height) {
@@ -1169,6 +1230,8 @@ void HelloTriangleApplication::initVulkan() {
     }
     surface_ = createSurface(instance_, window_);
     physicalDevice_ = pickPhysicalDevice(instance_, surface_);
+    msaaSamples_ = getMaxUsableSampleCount(physicalDevice_);
+    std::cout << static_cast<int>(msaaSamples_) << std::endl;
 
     queueFamilyIndices_ = findQueueFamilies(physicalDevice_, surface_);
     device_ = createLogicalDevice(physicalDevice_, queueFamilyIndices_);
@@ -1185,17 +1248,18 @@ void HelloTriangleApplication::initVulkan() {
     swapChainImageViews_ = createImageViews(device_, swapChainImages_, swapChainImageFormat_);
 
     depthFormat_ = findDepthFormat(physicalDevice_);
-    renderPass_ = createRenderPass(device_, swapChainImageFormat_, depthFormat_);
+    renderPass_ = createRenderPass(device_, swapChainImageFormat_, depthFormat_, msaaSamples_);
     descriptorSetLayout_ = createDescriptorSetLayout(device_);
     pipelineLayout_ = createPipelineLayout(device_, descriptorSetLayout_);
-    graphicsPipeline_ = createGraphicsPipeline(device_, swapChainExtent_, pipelineLayout_, renderPass_);
+    graphicsPipeline_ = createGraphicsPipeline(device_, swapChainExtent_, pipelineLayout_, renderPass_, msaaSamples_);
     commandPool_ = device_.createCommandPool({
         .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
         .queueFamilyIndex = queueFamilyIndices_.graphicsFamily.value(),
         });
     
-    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, commandPool_, graphicsQueue_);
-    swapChainFramebuffers_ = createFramebuffers(device_, swapChainImageViews_, depthImage_->imageView, renderPass_, swapChainExtent_);
+    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
+    colorImage_ = createColorResources(physicalDevice_, device_, swapChainImageFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
+    swapChainFramebuffers_ = createFramebuffers(device_, swapChainImageViews_, colorImage_->imageView, depthImage_->imageView, renderPass_, swapChainExtent_);
     textureImage_ = createTextureImage(physicalDevice_, device_, commandPool_, graphicsQueue_);
     textureSampler_ = createTextureSampler(physicalDevice_, device_, static_cast<float>(textureImage_->imageInfo().mipLevels));
     loadModel();
@@ -1294,8 +1358,9 @@ void HelloTriangleApplication::recreateSwapChain() {
     swapChain_ = createSwapChain(device_, surface_, swapChainSetupInfo_, swapChainExtent_, queueFamilyIndices_);
     swapChainImages_ = device_.getSwapchainImagesKHR(swapChain_);
     swapChainImageViews_ = createImageViews(device_, swapChainImages_, swapChainImageFormat_);
-    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, commandPool_, graphicsQueue_);
-    swapChainFramebuffers_ = createFramebuffers(device_, swapChainImageViews_, depthImage_->imageView, renderPass_, swapChainExtent_);
+    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
+    colorImage_ = createColorResources(physicalDevice_, device_, swapChainImageFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
+    swapChainFramebuffers_ = createFramebuffers(device_, swapChainImageViews_, colorImage_->imageView, depthImage_->imageView, renderPass_, swapChainExtent_);
 }
 
 void HelloTriangleApplication::mainLoop() {
@@ -1322,6 +1387,7 @@ void HelloTriangleApplication::cleanupSwapChain() {
     }
 
     depthImage_.reset();
+    colorImage_.reset();
     for (auto &imageView : swapChainImageViews_) {
         device_.destroyImageView(imageView);
     }
