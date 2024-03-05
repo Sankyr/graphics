@@ -6,10 +6,12 @@
 struct AllocatedBuffer {
 	AllocatedBuffer(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const vk::BufferCreateInfo& bufferInfo, const vk::MemoryPropertyFlags &properties);
 	~AllocatedBuffer();
+	const vk::BufferCreateInfo& bufferInfo() const { return bufferInfo_; }
 	vk::Buffer buffer;
 	vk::DeviceMemory memory;
 private:
 	vk::Device device_;
+	vk::BufferCreateInfo bufferInfo_;
 };
 
 struct AllocatedImage {

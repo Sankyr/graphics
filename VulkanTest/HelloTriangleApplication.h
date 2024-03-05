@@ -19,6 +19,7 @@ class HelloTriangleApplication {
 public:
     void run();
     ~HelloTriangleApplication();
+    float scale = 1;
 
 private:
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
@@ -49,7 +50,7 @@ private:
     vk::PhysicalDevice physicalDevice_;
     vk::Device device_;
     QueueFamilyIndices queueFamilyIndices_;
-    vk::Queue graphicsQueue_;
+    vk::Queue graphicsComputeQueue_;
     vk::Queue presentQueue_;
 
     vk::Format swapChainImageFormat_;
@@ -63,16 +64,18 @@ private:
     vk::DescriptorSetLayout descriptorSetLayout_;
     vk::PipelineLayout pipelineLayout_;
     vk::Pipeline graphicsPipeline_;
+    vk::Pipeline particleGraphicsPipeline_;
+
+    vk::DescriptorSetLayout computeDescriptorSetLayout_;
+    vk::PipelineLayout computePipelineLayout_;
+    vk::Pipeline computePipeline_;
 
     std::vector<vk::Framebuffer> swapChainFramebuffers_;
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     std::unique_ptr<AllocatedBuffer> vertexBuffer_;
     std::unique_ptr<AllocatedBuffer> indexBuffer_;
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
     vk::DescriptorPool descriptorPool_;
-    std::vector<VkDescriptorSet> descriptorSets;
     vk::CommandPool commandPool_;
     std::vector<std::unique_ptr<FrameRenderingInfo>> frameRenderingInfos_;
     
@@ -83,6 +86,7 @@ private:
     vk::Format depthFormat_;
     std::unique_ptr<AllocatedImage> colorImage_;
     vk::SampleCountFlagBits msaaSamples_;
+    std::vector<std::unique_ptr<AllocatedBuffer>> particleBuffers_;
 
     size_t frameNum_ = 0;
     bool framebufferResized_ = false;

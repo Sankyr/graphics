@@ -14,7 +14,7 @@ vk::DeviceMemory AllocateGPUMemory(const vk::Device& device, const vk::PhysicalD
 }
 }  // namespace
 
-AllocatedBuffer::AllocatedBuffer(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const vk::BufferCreateInfo &bufferCreateInfo, const vk::MemoryPropertyFlags &properties) : device_(device) {
+AllocatedBuffer::AllocatedBuffer(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const vk::BufferCreateInfo &bufferCreateInfo, const vk::MemoryPropertyFlags &properties) : device_(device), bufferInfo_(bufferCreateInfo) {
     buffer = device.createBuffer(bufferCreateInfo);
 
     vk::MemoryRequirements memRequirements = device.getBufferMemoryRequirements(buffer);

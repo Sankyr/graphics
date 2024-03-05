@@ -189,6 +189,7 @@
     <ClCompile Include="FrameRenderingInfo.cpp" />
     <ClCompile Include="HelloTriangleApplication.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Particle.cpp" />
     <ClCompile Include="SingleTimeCommands.cpp" />
     <ClCompile Include="SwapChainSetupInfo.cpp" />
     <ClCompile Include="Vertex.cpp" />
@@ -199,6 +200,7 @@
     <ClInclude Include="DeviceQueries.h" />
     <ClInclude Include="FrameRenderingInfo.h" />
     <ClInclude Include="HelloTriangleApplication.h" />
+    <ClInclude Include="Particle.h" />
     <ClInclude Include="SingleTimeCommands.h" />
     <ClInclude Include="SwapChainSetupInfo.h" />
     <ClInclude Include="UniformBufferObject.h" />

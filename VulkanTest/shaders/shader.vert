@@ -24,4 +24,5 @@ void main() {
 	// (ubo.view * vec4(2, 2, 0, 1.0)).xyz;
 	fragNormal = (ubo.view * ubo.model * vec4(inNormal, 0)).xyz;
 	fragTexCoord = inTexCoord;
+	gl_PointSize = 4;
 }

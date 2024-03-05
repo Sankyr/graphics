@@ -64,13 +64,12 @@ bool isDeviceSuitable(const vk::PhysicalDevice& device, const vk::SurfaceKHR& su
 QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice& device, const vk::SurfaceKHR& surface) {
     QueueFamilyIndices queueFamilyIndices;
 
-    uint32_t queueFamilyCount = 0;
     std::vector<vk::QueueFamilyProperties> queueFamilies = device.getQueueFamilyProperties();
 
     int i = 0;
     for (const auto& queueFamily : queueFamilies) {
-        if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
-            queueFamilyIndices.graphicsFamily = i;
+        if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics && queueFamily.queueFlags & vk::QueueFlagBits::eCompute) {
+            queueFamilyIndices.graphicsComputeFamily = i;
         }
         if (device.getSurfaceSupportKHR(i, surface)) {
             queueFamilyIndices.presentFamily = i;

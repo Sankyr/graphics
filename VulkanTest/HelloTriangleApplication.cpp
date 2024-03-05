@@ -1,6 +1,7 @@
 #include "HelloTriangleApplication.h"
 
 #include "SingleTimeCommands.h"
+#include "Particle.h"
 
 #include <stb_image.h>
 #include <tiny_obj_loader.h>
@@ -20,6 +21,7 @@
 #include <cstdint> // Necessary for UINT32_MAX
 #include <algorithm> // Necessary for std::min/std::max
 #include <fstream>
+#include <random>
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -36,6 +38,8 @@ const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
+const int PARTICLE_COUNT = 1000000;
+
 const std::vector<const char*> VALIDATION_LAYERS = {
     "VK_LAYER_KHRONOS_validation"
 };
@@ -44,9 +48,10 @@ const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
+std::chrono::steady_clock::time_point prevTime;
+
 void displayExtensions() {
     std::vector<vk::ExtensionProperties> extensions = vk::enumerateInstanceExtensionProperties();
-
     std::cout << "available extensions:\n";
 
     for (const auto& extension : extensions) {
@@ -139,7 +144,7 @@ vk::PhysicalDevice pickPhysicalDevice(const vk::Instance& instance, const vk::Su
 
 vk::Device createLogicalDevice(const vk::PhysicalDevice& physicalDevice, const QueueFamilyIndices& queueFamilyIndices) {
     std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-    std::set<uint32_t> uniqueQueueFamilies = { queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value() };
+    std::set<uint32_t> uniqueQueueFamilies = { queueFamilyIndices.graphicsComputeFamily.value(), queueFamilyIndices.presentFamily.value() };
 
     float queuePriority = 1.0f;
     for (uint32_t queueFamily : uniqueQueueFamilies) {
@@ -210,10 +215,10 @@ vk::SwapchainKHR createSwapChain(const vk::Device& device, const vk::SurfaceKHR&
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
 
-    if (queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily) {
+    if (queueFamilyIndices.graphicsComputeFamily != queueFamilyIndices.presentFamily) {
         createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
         createInfo.queueFamilyIndexCount = 2;
-        uint32_t indices[] = { queueFamilyIndices.graphicsFamily.value(), queueFamilyIndices.presentFamily.value() };
+        uint32_t indices[] = { queueFamilyIndices.graphicsComputeFamily.value(), queueFamilyIndices.presentFamily.value() };
         createInfo.pQueueFamilyIndices = indices;
     }
     else {
@@ -358,11 +363,21 @@ vk::RenderPass createRenderPass(const vk::Device& device, const vk::Format& swap
 }
 
 vk::PipelineLayout createPipelineLayout(const vk::Device &device, const vk::DescriptorSetLayout &descriptorSetLayout) {
+    //setup push constants
+    vk::PushConstantRange push_constant = {
+        //this push constant range is accessible only in the vertex shader
+        .stageFlags = vk::ShaderStageFlagBits::eVertex,
+        //this push constant range starts at the beginning
+        .offset = 0,
+        //this push constant range takes up the size of a MeshPushConstants struct
+        .size = sizeof(float),
+    };
+
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo = {
             .setLayoutCount = 1,
             .pSetLayouts = &descriptorSetLayout,
-            .pushConstantRangeCount = 0, // Optional
-            .pPushConstantRanges = nullptr, // Optional
+            .pushConstantRangeCount = 1, // Optional
+            .pPushConstantRanges = &push_constant, // Optional
     };
 
     return device.createPipelineLayout(pipelineLayoutInfo);
@@ -542,6 +557,190 @@ vk::Pipeline createGraphicsPipeline(const vk::Device& device, const vk::Extent2D
     return graphicsPipeline.value;
 }
 
+
+vk::Pipeline createParticleGraphicsPipeline(const vk::Device& device, const vk::Extent2D& swapChainExtent, const vk::PipelineLayout& pipelineLayout, const vk::RenderPass& renderPass, const vk::SampleCountFlagBits& msaaSamples) {
+    auto vertShaderCode = readFile("compiledShaders/particles_vert.spv");
+    auto fragShaderCode = readFile("compiledShaders/particles_frag.spv");
+
+    vk::ShaderModule vertShaderModule = createShaderModule(device, vertShaderCode);
+    vk::ShaderModule fragShaderModule = createShaderModule(device, fragShaderCode);
+
+    vk::PipelineShaderStageCreateInfo vertShaderStageInfo = {
+        .stage = vk::ShaderStageFlagBits::eVertex,
+        .module = vertShaderModule,
+        .pName = "main",
+    };
+
+    vk::PipelineShaderStageCreateInfo fragShaderStageInfo = {
+        .stage = vk::ShaderStageFlagBits::eFragment,
+        .module = fragShaderModule,
+        .pName = "main",
+    };
+
+    vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+    auto bindingDescription = Particle::getBindingDescription();
+    auto attributeDescriptions = Particle::getAttributeDescriptions();
+
+    vk::PipelineVertexInputStateCreateInfo vertexInputInfo = {
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &bindingDescription,
+        .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
+        .pVertexAttributeDescriptions = attributeDescriptions.data(),
+    };
+
+    vk::PipelineInputAssemblyStateCreateInfo inputAssembly = {
+        // .topology = vk::PrimitiveTopology::ePointList,
+        .topology = vk::PrimitiveTopology::eLineStrip,
+        .primitiveRestartEnable = vk::False,
+    };
+
+    vk::Viewport viewport = {
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = (float)swapChainExtent.width,
+        .height = (float)swapChainExtent.height,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+
+    vk::Rect2D scissor = {
+        .offset = { 0, 0 },
+        .extent = swapChainExtent,
+    };
+
+    vk::PipelineViewportStateCreateInfo viewportState = {
+        .viewportCount = 1,
+        .pViewports = &viewport,
+        .scissorCount = 1,
+        .pScissors = &scissor,
+    };
+
+    vk::PipelineRasterizationStateCreateInfo rasterizer = {
+        .depthClampEnable = vk::False,
+        .rasterizerDiscardEnable = vk::False,
+        .polygonMode = vk::PolygonMode::eFill,
+        .cullMode = vk::CullModeFlagBits::eBack,
+        .frontFace = vk::FrontFace::eCounterClockwise,
+        .depthBiasEnable = vk::False,
+        .depthBiasConstantFactor = 0.0f, // Optional
+        .depthBiasClamp = 0.0f, // Optional
+        .depthBiasSlopeFactor = 0.0f, // Optional
+        .lineWidth = 1.0f,
+    };
+
+    vk::PipelineMultisampleStateCreateInfo multisampling = {
+        .rasterizationSamples = msaaSamples,
+        .sampleShadingEnable = vk::False,
+        .minSampleShading = 1.0f, // Optional
+        .pSampleMask = nullptr, // Optional
+        .alphaToCoverageEnable = vk::False, // Optional
+        .alphaToOneEnable = vk::False, // Optional
+    };
+
+    vk::PipelineColorBlendAttachmentState colorBlendAttachment = {
+        .blendEnable = vk::False,
+        .srcColorBlendFactor = vk::BlendFactor::eOne, // Optional
+        .dstColorBlendFactor = vk::BlendFactor::eZero, // Optional
+        .colorBlendOp = vk::BlendOp::eAdd, // Optional
+        .srcAlphaBlendFactor = vk::BlendFactor::eOne, // Optional
+        .dstAlphaBlendFactor = vk::BlendFactor::eZero, // Optional
+        .alphaBlendOp = vk::BlendOp::eAdd, // Optional
+        .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
+    };
+
+    vk::PipelineColorBlendStateCreateInfo colorBlending = {
+        .logicOpEnable = vk::False,
+        .logicOp = vk::LogicOp::eCopy, // Optional
+        .attachmentCount = 1,
+        .pAttachments = &colorBlendAttachment,
+        .blendConstants = std::array<float, 4> {0.0f, 0.0f, 0.0f, 0.0f} // Optional
+    };
+
+    vk::PipelineDepthStencilStateCreateInfo depthStencil = {
+        .depthTestEnable = vk::True,
+        .depthWriteEnable = vk::True,
+        .depthCompareOp = vk::CompareOp::eLess,
+
+        .depthBoundsTestEnable = vk::False,
+        .stencilTestEnable = vk::False,
+        .front = {}, // Optional
+        .back = {}, // Optional
+        .minDepthBounds = 0.0f, // Optional
+        .maxDepthBounds = 1.0f, // Optional
+    };
+
+    std::vector<vk::DynamicState> dynamicStates = {
+        vk::DynamicState::eViewport,
+        vk::DynamicState::eScissor
+    };
+
+    vk::PipelineDynamicStateCreateInfo dynamicState = {
+        .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+        .pDynamicStates = dynamicStates.data()
+    };
+
+    vk::GraphicsPipelineCreateInfo pipelineInfo = {
+        .stageCount = 2,
+        .pStages = shaderStages,
+
+        .pVertexInputState = &vertexInputInfo,
+        .pInputAssemblyState = &inputAssembly,
+        .pViewportState = &viewportState,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pDepthStencilState = &depthStencil, // Optional
+        .pColorBlendState = &colorBlending,
+        .pDynamicState = &dynamicState, // Optional
+
+        .layout = pipelineLayout,
+
+        .renderPass = renderPass,
+        .subpass = 0,
+
+        .basePipelineHandle = VK_NULL_HANDLE, // Optional
+        .basePipelineIndex = -1, // Optional
+    };
+
+    vk::ResultValue<vk::Pipeline> graphicsPipeline = device.createGraphicsPipeline(VK_NULL_HANDLE, pipelineInfo);
+    if (graphicsPipeline.result != vk::Result::eSuccess) {
+        throw std::runtime_error("failed to create graphics pipeline!");
+    }
+
+    device.destroyShaderModule(fragShaderModule);
+    device.destroyShaderModule(vertShaderModule);
+
+    return graphicsPipeline.value;
+}
+
+vk::Pipeline createComputePipeline(const vk::Device& device, const vk::PipelineLayout& pipelineLayout) {
+    auto compShaderCode = readFile("compiledShaders/shader_comp.spv");
+
+    vk::ShaderModule compShaderModule = createShaderModule(device, compShaderCode);
+
+    vk::PipelineShaderStageCreateInfo compShaderStageInfo = {
+        .stage = vk::ShaderStageFlagBits::eCompute,
+        .module = compShaderModule,
+        .pName = "main",
+    };
+
+    vk::PipelineShaderStageCreateInfo shaderStages[] = { compShaderStageInfo };
+
+    vk::ComputePipelineCreateInfo pipelineInfo = {
+        .stage = compShaderStageInfo,
+        .layout = pipelineLayout,
+    };
+
+    vk::ResultValue<vk::Pipeline> computePipeline = device.createComputePipeline(VK_NULL_HANDLE, pipelineInfo);
+    if (computePipeline.result != vk::Result::eSuccess) {
+        throw std::runtime_error("failed to create graphics pipeline!");
+    }
+
+    device.destroyShaderModule(compShaderModule);
+
+    return computePipeline.value;
+}
+
 std::vector<vk::Framebuffer> createFramebuffers(const vk::Device& device, const std::vector<vk::ImageView>& swapChainImageViews, const vk::ImageView& colorImageView, const vk::ImageView &depthImageView, const vk::RenderPass& renderPass, const vk::Extent2D& swapChainExtent) {
     std::vector<vk::Framebuffer> swapChainFramebuffers(swapChainImageViews.size());
 
@@ -590,6 +789,39 @@ vk::DescriptorSetLayout createDescriptorSetLayout(const vk::Device& device) {
     vk::DescriptorSetLayoutCreateInfo layoutInfo = {
         .bindingCount = static_cast<uint32_t>(bindings.size()),
         .pBindings = bindings.data()
+    };
+
+    return device.createDescriptorSetLayout(layoutInfo);
+}
+
+vk::DescriptorSetLayout createComputeDescriptorSetLayout(const vk::Device& device) {
+    std::array<vk::DescriptorSetLayoutBinding, 3> layoutBindings = {
+        vk::DescriptorSetLayoutBinding {
+            .binding = 0,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .descriptorCount = 1,
+            .stageFlags = vk::ShaderStageFlagBits::eCompute,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 1,
+            .descriptorType = vk::DescriptorType::eStorageBuffer,
+            .descriptorCount = 1,
+            .stageFlags = vk::ShaderStageFlagBits::eCompute,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 2,
+            .descriptorType = vk::DescriptorType::eStorageBuffer,
+            .descriptorCount = 1,
+            .stageFlags = vk::ShaderStageFlagBits::eCompute,
+            .pImmutableSamplers = nullptr,
+        }
+    };
+
+    vk::DescriptorSetLayoutCreateInfo layoutInfo = {
+        .bindingCount = layoutBindings.size(),
+        .pBindings = layoutBindings.data()
     };
 
     return device.createDescriptorSetLayout(layoutInfo);
@@ -993,19 +1225,27 @@ std::unique_ptr<AllocatedBuffer> createIndexBuffer(const vk::PhysicalDevice& phy
 }
 
 vk::DescriptorPool createDescriptorPool(const vk::Device& device) {
-    std::array<vk::DescriptorPoolSize, 2> poolSizes = {
+    std::array<vk::DescriptorPoolSize, 3> poolSizes = {
         vk::DescriptorPoolSize{
             .type = vk::DescriptorType::eUniformBuffer,
-            .descriptorCount = MAX_FRAMES_IN_FLIGHT
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 2
         },
         {
             .type = vk::DescriptorType::eCombinedImageSampler,
             .descriptorCount = MAX_FRAMES_IN_FLIGHT
+        },
+        /*{
+            .type = vk::DescriptorType::eUniformBuffer,
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT
+        },*/
+        {
+            .type = vk::DescriptorType::eStorageBuffer,
+            .descriptorCount = MAX_FRAMES_IN_FLIGHT * 2
         }
     };
 
     vk::DescriptorPoolCreateInfo poolInfo = {
-        .maxSets = MAX_FRAMES_IN_FLIGHT,
+        .maxSets = MAX_FRAMES_IN_FLIGHT * 2,
         .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
         .pPoolSizes = poolSizes.data(),
     };
@@ -1014,11 +1254,12 @@ vk::DescriptorPool createDescriptorPool(const vk::Device& device) {
 }
 
 void recordCommandBuffer(
-    const vk::Device& device, const vk::CommandBuffer& commandBuffer, const vk::RenderPass& renderPass,
-    const vk::Framebuffer& swapChainFramebuffer, const vk::Extent2D& swapChainExtent, const vk::Pipeline& graphicsPipeline,
-    const vk::Buffer& vertexBuffer, const vk::Buffer& indexBuffer, const std::vector<uint32_t>& indices, const vk::PipelineLayout& pipelineLayout, const vk::DescriptorSet& descriptorSet) {
+    const vk::CommandBuffer& commandBuffer, const vk::RenderPass& renderPass,
+    const vk::Framebuffer& swapChainFramebuffer, const vk::Extent2D& swapChainExtent, const vk::Pipeline& graphicsPipeline, const vk::Pipeline& particleGraphicsPipeline,
+    const vk::Buffer& vertexBuffer, const vk::Buffer& indexBuffer, const std::vector<uint32_t>& indices, const vk::PipelineLayout& pipelineLayout, const vk::PipelineLayout &computePipelineLayout, const vk::DescriptorSet& descriptorSet, const vk::Buffer &particleBuffer, float scale) {
     vk::CommandBufferBeginInfo beginInfo = {};
     commandBuffer.begin(beginInfo);
+
     std::array<vk::ClearValue, 2> clearValues = {
         vk::ClearValue{.color = std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f} },
         vk::ClearValue{.depthStencil = {.depth = 1.0f, .stencil = 0 }}
@@ -1057,16 +1298,34 @@ void recordCommandBuffer(
     commandBuffer.bindIndexBuffer(indexBuffer, 0, vk::IndexType::eUint32);
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, static_cast<uint32_t>(0), descriptorSet, {});
     commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, particleGraphicsPipeline);
+    commandBuffer.pushConstants(computePipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(float), &scale);
+
+    commandBuffer.bindVertexBuffers(0, 1, &particleBuffer, offsets);
+    commandBuffer.draw(PARTICLE_COUNT, 1, 0, 0);
     commandBuffer.endRenderPass();
 
     commandBuffer.end();
 }
 
-void updateUniformBuffer(const vk::Device device, const vk::Extent2D& swapChainExtent, void* uniformBuffersMapped) {
-    static auto startTime = std::chrono::high_resolution_clock::now();
+void recordComputeCommandBuffer(
+    const vk::CommandBuffer& commandBuffer, const vk::Pipeline& computePipeline, const vk::PipelineLayout& computePipelineLayout, const vk::DescriptorSet& computeDescriptorSet) {
+    vk::CommandBufferBeginInfo beginInfo = {};
+    commandBuffer.begin(beginInfo);
 
-    auto currentTime = std::chrono::high_resolution_clock::now();
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, computePipeline);
+    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, computePipelineLayout, 0, computeDescriptorSet, {});
+    commandBuffer.dispatch(PARTICLE_COUNT / 256 + 1, 1, 1);
+
+    commandBuffer.end();
+}
+
+void updateUniformBuffer(const vk::Device device, const vk::Extent2D& swapChainExtent, void* uniformBuffersMapped, void* timeBuffersMapped) {
+    static auto startTime = std::chrono::high_resolution_clock::now();
+    std::chrono::steady_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+    float deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - prevTime).count();
 
     UniformBufferObject ubo{};
     ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(15.0f), glm::vec3(0.0f, 0.0f, 1.0f));
@@ -1078,12 +1337,32 @@ void updateUniformBuffer(const vk::Device device, const vk::Extent2D& swapChainE
     ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
     ubo.proj[1][1] *= -1;*/
 
+    //std::cout << deltaTime << std::endl;
+    TimeBufferObject timeObj = { .time = time, .deltaTime = deltaTime };
     memcpy(uniformBuffersMapped, &ubo, sizeof(ubo));
+    memcpy(timeBuffersMapped, &timeObj, sizeof(TimeBufferObject));
+    prevTime = currentTime;
 }
 
-bool drawFrame(const vk::Device& device, const vk::SwapchainKHR& swapChain, const vk::Queue& graphicsQueue, const vk::Queue& presentQueue, const vk::Extent2D& swapChainExtent, const std::unique_ptr<FrameRenderingInfo>& frameRenderingInfo,
-    const vk::RenderPass& renderPass, const std::vector<vk::Framebuffer>& swapChainFrameBuffers, const vk::Pipeline& graphicsPipeline,
-    const vk::Buffer& vertexBuffer, const vk::Buffer& indexBuffer, const std::vector<uint32_t>& indices, const vk::PipelineLayout& pipelineLayout) {
+bool drawFrame(const vk::Device& device, const vk::SwapchainKHR& swapChain, const vk::Queue& graphicsComputeQueue, const vk::Queue& presentQueue, const vk::Extent2D& swapChainExtent, const std::unique_ptr<FrameRenderingInfo>& frameRenderingInfo,
+    const vk::RenderPass& renderPass, const std::vector<vk::Framebuffer>& swapChainFrameBuffers, const vk::Pipeline& graphicsPipeline, const vk::Pipeline &particleGraphicsPipeline, const vk::Pipeline& computePipeline,
+    const vk::Buffer& vertexBuffer, const vk::Buffer& indexBuffer, const std::vector<uint32_t>& indices, const vk::PipelineLayout& pipelineLayout, const vk::PipelineLayout& computePipelineLayout, const vk::Buffer &particleBuffer, float scale) {
+    assert(device.waitForFences({frameRenderingInfo->computeInFlightFence}, vk::True, UINT64_MAX) == vk::Result::eSuccess);
+    device.resetFences({ frameRenderingInfo->computeInFlightFence });
+
+    updateUniformBuffer(device, swapChainExtent, frameRenderingInfo->uniformBufferMapped, frameRenderingInfo->timeBufferMapped);
+    vkResetCommandBuffer(frameRenderingInfo->computeCommandBuffer, 0);
+    recordComputeCommandBuffer(frameRenderingInfo->computeCommandBuffer, computePipeline, computePipelineLayout, frameRenderingInfo->computeDescriptorSet);
+
+    vk::SubmitInfo computeSubmitInfo = {
+        .commandBufferCount = 1,
+        .pCommandBuffers = &frameRenderingInfo->computeCommandBuffer,
+
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &frameRenderingInfo->computeFinishedSemaphore,
+    };
+    graphicsComputeQueue.submit(computeSubmitInfo, frameRenderingInfo->computeInFlightFence);
+
     assert(device.waitForFences({ frameRenderingInfo->inFlightFence }, vk::True, UINT64_MAX) == vk::Result::eSuccess);
 
     uint32_t imageIndex;
@@ -1097,14 +1376,14 @@ bool drawFrame(const vk::Device& device, const vk::SwapchainKHR& swapChain, cons
 
     device.resetFences({ frameRenderingInfo->inFlightFence });
     vkResetCommandBuffer(frameRenderingInfo->commandBuffer, 0);
-    recordCommandBuffer(device, frameRenderingInfo->commandBuffer, renderPass, swapChainFrameBuffers[imageIndex], swapChainExtent, graphicsPipeline, vertexBuffer, indexBuffer, indices, pipelineLayout, frameRenderingInfo->descriptorSet);
-    updateUniformBuffer(device, swapChainExtent, frameRenderingInfo->uniformBufferMapped);
+    recordCommandBuffer(frameRenderingInfo->commandBuffer, renderPass, swapChainFrameBuffers[imageIndex], swapChainExtent, graphicsPipeline, particleGraphicsPipeline, vertexBuffer, indexBuffer, indices, pipelineLayout, computePipelineLayout, frameRenderingInfo->descriptorSet, particleBuffer, scale);
+    // updateUniformBuffer(device, swapChainExtent, frameRenderingInfo->uniformBufferMapped);
 
-    vk::Semaphore waitSemaphores[] = { frameRenderingInfo->imageAvailableSemaphore };
+    vk::Semaphore waitSemaphores[] = { frameRenderingInfo->computeFinishedSemaphore, frameRenderingInfo->imageAvailableSemaphore};
     vk::Semaphore signalSemaphores[] = { frameRenderingInfo->renderFinishedSemaphore };
-    vk::PipelineStageFlags waitStages[] = { vk::PipelineStageFlagBits::eColorAttachmentOutput };
+    vk::PipelineStageFlags waitStages[] = { vk::PipelineStageFlagBits::eVertexInput, vk::PipelineStageFlagBits::eColorAttachmentOutput };
     vk::SubmitInfo submitInfo = {
-        .waitSemaphoreCount = 1,
+        .waitSemaphoreCount = 2,
         .pWaitSemaphores = waitSemaphores,
         .pWaitDstStageMask = waitStages,
 
@@ -1115,7 +1394,7 @@ bool drawFrame(const vk::Device& device, const vk::SwapchainKHR& swapChain, cons
         .pSignalSemaphores = signalSemaphores,
     };
 
-    graphicsQueue.submit(submitInfo, frameRenderingInfo->inFlightFence);
+    graphicsComputeQueue.submit(submitInfo, frameRenderingInfo->inFlightFence);
 
     vk::PresentInfoKHR presentInfo = {
         .waitSemaphoreCount = 1,
@@ -1140,6 +1419,59 @@ bool drawFrame(const vk::Device& device, const vk::SwapchainKHR& swapChain, cons
         return true;
     }
     return false;
+}
+
+std::unique_ptr<AllocatedBuffer> initializeParticles(const vk::PhysicalDevice& physicalDevice, const vk::Device& device) {
+    // Initialize particles
+    std::default_random_engine rndEngine((unsigned)time(nullptr));
+    std::uniform_real_distribution<float> rndDist(0.0f, 1.0f);
+
+    // Initial particle positions on a circle
+    std::vector<Particle> particles(PARTICLE_COUNT);
+    int i = 0;
+    int width = sqrt(PARTICLE_COUNT);
+    for (Particle& particle : particles) {
+        float r = 1.0f * sqrt(rndDist(rndEngine));
+        float theta = rndDist(rndEngine) * 2 * 3.14159265358979323846;
+        float x = r * cos(theta);
+        float y = r * sin(theta);
+        particle.position = glm::vec3(x, y, 0);
+        particle.velocity = glm::vec3(0, 0, 0); // glm::normalize(glm::vec3(x, y, 0)) * 0.00025f;
+        particle.acceleration = glm::vec3(0, 0, 0);
+        particle.color = glm::vec3((i % width) / static_cast<float>(width), (i / width)  / static_cast<float>(width), rndDist(rndEngine)); // rndDist(rndEngine)
+        ++i;
+    }
+
+    VkDeviceSize bufferSize = sizeof(Particle) * PARTICLE_COUNT;
+    vk::BufferCreateInfo bufferCreateInfo = {
+        .size = bufferSize,
+        .usage = vk::BufferUsageFlagBits::eTransferSrc,
+        .sharingMode = vk::SharingMode::eExclusive
+    };
+    std::unique_ptr<AllocatedBuffer> stagingBuffer = std::make_unique<AllocatedBuffer>(physicalDevice, device, bufferCreateInfo, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void* data = device.mapMemory(stagingBuffer->memory, 0, bufferSize, {});
+    memcpy(data, particles.data(), (size_t)bufferSize);
+    device.unmapMemory(stagingBuffer->memory);
+    return stagingBuffer;
+}
+
+std::unique_ptr<AllocatedBuffer> createParticleBuffer(const vk::PhysicalDevice& physicalDevice, const vk::Device& device, const std::unique_ptr<AllocatedBuffer> &stagingParticleBuffer, SingleTimeCommands singleTimeCommands) {
+    vk::BufferCreateInfo particleBufferCreateInfo = {
+            .size = stagingParticleBuffer->bufferInfo().size,
+            .usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
+            .sharingMode = vk::SharingMode::eExclusive
+    };
+    std::unique_ptr<AllocatedBuffer> particleBuffer = std::make_unique<AllocatedBuffer>(physicalDevice, device, particleBufferCreateInfo, vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    vk::BufferCopy copyRegion{
+        .srcOffset = 0, // Optional
+        .dstOffset = 0, // Optional
+        .size = stagingParticleBuffer->bufferInfo().size
+    };
+    singleTimeCommands.commandBuffer.copyBuffer(stagingParticleBuffer->buffer, particleBuffer->buffer, copyRegion);
+    singleTimeCommands.submit();
+    return particleBuffer;
 }
 }  // namespace
 
@@ -1203,6 +1535,16 @@ void HelloTriangleApplication::windowRefreshCallback(GLFWwindow* window) {
     std::cout << app->count << " window refresh" << std::endl;
     app->count++;
 }
+
+void scrollCallback(GLFWwindow* window, double xoffset, double yoffset){
+    auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+    if (yoffset > 0) {
+        app->scale *= 1.01 * yoffset;
+    }
+    if (yoffset < 0) {
+        app->scale *= .99 * abs(yoffset);
+    }
+}
 // end static
     
 GLFWwindow* HelloTriangleApplication::initWindow() {
@@ -1214,6 +1556,7 @@ GLFWwindow* HelloTriangleApplication::initWindow() {
     GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+    glfwSetScrollCallback(window, scrollCallback);
     // glfwSetWindowRefreshCallback(window_, windowRefreshCallback);
     // glfwSetWindowPosCallback(window_, windowPosCallback);
     // glfwSetWindowSizeCallback(window_, windowSizeCallback);
@@ -1237,7 +1580,7 @@ void HelloTriangleApplication::initVulkan() {
     device_ = createLogicalDevice(physicalDevice_, queueFamilyIndices_);
     VULKAN_HPP_DEFAULT_DISPATCHER.init(device_);
 
-    graphicsQueue_ = device_.getQueue(queueFamilyIndices_.graphicsFamily.value(), 0);
+    graphicsComputeQueue_ = device_.getQueue(queueFamilyIndices_.graphicsComputeFamily.value(), 0);
     presentQueue_ = device_.getQueue(queueFamilyIndices_.presentFamily.value(), 0);
 
     swapChainSetupInfo_ = SwapChainSetupInfo(physicalDevice_, surface_);
@@ -1250,24 +1593,33 @@ void HelloTriangleApplication::initVulkan() {
     depthFormat_ = findDepthFormat(physicalDevice_);
     renderPass_ = createRenderPass(device_, swapChainImageFormat_, depthFormat_, msaaSamples_);
     descriptorSetLayout_ = createDescriptorSetLayout(device_);
+    computeDescriptorSetLayout_ = createComputeDescriptorSetLayout(device_);
     pipelineLayout_ = createPipelineLayout(device_, descriptorSetLayout_);
     graphicsPipeline_ = createGraphicsPipeline(device_, swapChainExtent_, pipelineLayout_, renderPass_, msaaSamples_);
+    particleGraphicsPipeline_ = createParticleGraphicsPipeline(device_, swapChainExtent_, pipelineLayout_, renderPass_, msaaSamples_);
+    computePipelineLayout_ = createPipelineLayout(device_, computeDescriptorSetLayout_);
+    computePipeline_ = createComputePipeline(device_, computePipelineLayout_);
     commandPool_ = device_.createCommandPool({
         .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-        .queueFamilyIndex = queueFamilyIndices_.graphicsFamily.value(),
+        .queueFamilyIndex = queueFamilyIndices_.graphicsComputeFamily.value(),
         });
     
-    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
-    colorImage_ = createColorResources(physicalDevice_, device_, swapChainImageFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
+    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsComputeQueue_);
+    colorImage_ = createColorResources(physicalDevice_, device_, swapChainImageFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsComputeQueue_);
     swapChainFramebuffers_ = createFramebuffers(device_, swapChainImageViews_, colorImage_->imageView, depthImage_->imageView, renderPass_, swapChainExtent_);
-    textureImage_ = createTextureImage(physicalDevice_, device_, commandPool_, graphicsQueue_);
+    textureImage_ = createTextureImage(physicalDevice_, device_, commandPool_, graphicsComputeQueue_);
     textureSampler_ = createTextureSampler(physicalDevice_, device_, static_cast<float>(textureImage_->imageInfo().mipLevels));
     loadModel();
-    vertexBuffer_ = createVertexBuffer(physicalDevice_, device_, commandPool_, graphicsQueue_, vertices);
-    indexBuffer_ = createIndexBuffer(physicalDevice_, device_, commandPool_, graphicsQueue_, indices);
+    vertexBuffer_ = createVertexBuffer(physicalDevice_, device_, commandPool_, graphicsComputeQueue_, vertices);
+    indexBuffer_ = createIndexBuffer(physicalDevice_, device_, commandPool_, graphicsComputeQueue_, indices);
     descriptorPool_ = createDescriptorPool(device_);
+
+    std::unique_ptr<AllocatedBuffer> stagingParticleBuffer = initializeParticles(physicalDevice_, device_);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        frameRenderingInfos_.push_back(std::make_unique<FrameRenderingInfo>(physicalDevice_, device_, commandPool_, descriptorPool_, descriptorSetLayout_, textureImage_->imageView, textureSampler_));
+        particleBuffers_.push_back(createParticleBuffer(physicalDevice_, device_, stagingParticleBuffer, SingleTimeCommands(device_, commandPool_, graphicsComputeQueue_)));
+    }
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        frameRenderingInfos_.push_back(std::make_unique<FrameRenderingInfo>(physicalDevice_, device_, commandPool_, descriptorPool_, descriptorSetLayout_, computeDescriptorSetLayout_, textureImage_->imageView, textureSampler_, particleBuffers_[(i + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT], particleBuffers_[i]));
     }
 }
 
@@ -1358,8 +1710,8 @@ void HelloTriangleApplication::recreateSwapChain() {
     swapChain_ = createSwapChain(device_, surface_, swapChainSetupInfo_, swapChainExtent_, queueFamilyIndices_);
     swapChainImages_ = device_.getSwapchainImagesKHR(swapChain_);
     swapChainImageViews_ = createImageViews(device_, swapChainImages_, swapChainImageFormat_);
-    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
-    colorImage_ = createColorResources(physicalDevice_, device_, swapChainImageFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsQueue_);
+    depthImage_ = createDepthResources(physicalDevice_, device_, depthFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsComputeQueue_);
+    colorImage_ = createColorResources(physicalDevice_, device_, swapChainImageFormat_, swapChainExtent_, msaaSamples_, commandPool_, graphicsComputeQueue_);
     swapChainFramebuffers_ = createFramebuffers(device_, swapChainImageViews_, colorImage_->imageView, depthImage_->imageView, renderPass_, swapChainExtent_);
 }
 
@@ -1369,8 +1721,8 @@ void HelloTriangleApplication::mainLoop() {
         glfwPollEvents();
 
         // Also can be set in resize callback
-        framebufferResized_ |= drawFrame(device_, swapChain_, graphicsQueue_, presentQueue_, swapChainExtent_, frameRenderingInfos_[frameNum_ % MAX_FRAMES_IN_FLIGHT],
-            renderPass_, swapChainFramebuffers_, graphicsPipeline_, vertexBuffer_->buffer, indexBuffer_->buffer, indices, pipelineLayout_);
+        framebufferResized_ |= drawFrame(device_, swapChain_, graphicsComputeQueue_, presentQueue_, swapChainExtent_, frameRenderingInfos_[frameNum_ % MAX_FRAMES_IN_FLIGHT],
+            renderPass_, swapChainFramebuffers_, graphicsPipeline_, particleGraphicsPipeline_, computePipeline_, vertexBuffer_->buffer, indexBuffer_->buffer, indices, pipelineLayout_, computePipelineLayout_, particleBuffers_[frameNum_ % MAX_FRAMES_IN_FLIGHT]->buffer, scale);
         if (framebufferResized_) {
             recreateSwapChain();
             framebufferResized_ = false;
@@ -1404,9 +1756,13 @@ HelloTriangleApplication::~HelloTriangleApplication() {
 
     device_.destroyDescriptorPool(descriptorPool_);
     device_.destroyDescriptorSetLayout(descriptorSetLayout_);
+    device_.destroyDescriptorSetLayout(computeDescriptorSetLayout_);
 
     indexBuffer_.reset();
     vertexBuffer_.reset();
+    for (std::unique_ptr<AllocatedBuffer>& particleBuffer : particleBuffers_) {
+        particleBuffer.reset();
+    }
 
     for (std::unique_ptr<FrameRenderingInfo> &frameRenderingInfo : frameRenderingInfos_) {
         frameRenderingInfo.reset();
@@ -1415,7 +1771,10 @@ HelloTriangleApplication::~HelloTriangleApplication() {
     device_.destroyCommandPool(commandPool_);
 
     device_.destroyPipeline(graphicsPipeline_);
+    device_.destroyPipeline(particleGraphicsPipeline_);
     device_.destroyPipelineLayout(pipelineLayout_);
+    device_.destroyPipeline(computePipeline_);
+    device_.destroyPipelineLayout(computePipelineLayout_);
     device_.destroyRenderPass(renderPass_);
     device_.destroy();
 

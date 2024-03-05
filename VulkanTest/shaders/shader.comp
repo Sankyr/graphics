@@ -1,0 +1,144 @@
+#version 450
+#define PI 3.14159265
+layout (binding = 0) uniform ParameterUBO {
+	float time;
+    float deltaTime;
+} ubo;
+
+struct Particle {
+    vec3 position;
+	vec3 velocity;
+	vec3 acceleration;
+	vec3 color;
+};
+
+layout(std140, binding = 1) readonly buffer ParticleSSBOIn {
+   Particle particlesIn[ ];
+};
+
+layout(std140, binding = 2) buffer ParticleSSBOOut {
+   Particle particlesOut[ ];
+};
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+	if (gl_GlobalInvocationID.x >= particlesIn.length()) {
+		return;
+	}
+    uint index = gl_GlobalInvocationID.x;
+
+    Particle particleIn = particlesIn[index];
+	
+	vec3 velocity = particleIn.velocity;
+	if (particleIn.position.x <= -1 || particleIn.position.x >= 1){
+		velocity.x *= -1;
+		/*if (abs(velocity.x) > .1){
+			velocity.x *= .9;
+		}*/
+	}
+	if (particleIn.position.y <= -1 || particleIn.position.y >= 1){
+		velocity.y *= -1;
+		/*if (abs(velocity.y) > .1){
+			velocity.y *= .9;
+		}*/
+	}
+	if (particleIn.position.z <= 0 || particleIn.position.z >= 1){
+		velocity.z *= -1;
+		/*if (abs(velocity.z) > .1){
+			velocity.z *= .9;
+		}*/
+	}
+	velocity = particleIn.velocity;
+	
+	vec3 force = vec3(0, 0, 0);
+	/*for (uint i = 0; i < particlesIn.length(); ++i){
+		if (i == index) {
+			continue;
+		}
+		vec3 dir = particlesIn[i].position - particleIn.position;
+		float len = length(dir);
+		if (len > .01){
+			force += .00001 / pow(length(dir), 2) * normalize(dir);// / particlesIn.length();
+		} else {
+			force -= 0;//.00001 / pow(length(dir), 2) * normalize(dir);// / particlesIn.length();
+		}
+	}*/
+	// vec3 force = .1*vec3(-particleIn.position.y, particleIn.position.x, 0);
+	/*
+	force = vec3(
+		10 * (particleIn.position.y - particleIn.position.x), 
+		particleIn.position.x * (28 - particleIn.position.z) - particleIn.position.y,
+		particleIn.position.x * particleIn.position.y - (8/3.0f * particleIn.position.z));
+	*/
+	
+	
+	uint width = uint(sqrt(particlesIn.length()));
+	float k = 10;
+	float restLength = .000001;
+	// up
+	if (index >= width){
+		vec3 upDir = particleIn.position - particlesIn[index - width].position;
+		if (upDir != vec3(0, 0, 0)) {
+			force += -k * (length(upDir) - restLength) * normalize(upDir);
+			}
+	} 
+	// down
+	if (index < particlesIn.length() - width){
+		vec3 downDir = particleIn.position - particlesIn[index + width].position;
+		if (downDir != vec3(0, 0, 0)){
+			force += -k * (length(downDir) - restLength) * normalize(downDir);}
+	} 
+	// left
+	if (index % width > 0){
+		vec3 leftDir = particleIn.position - particlesIn[index - 1].position;
+		if (leftDir != vec3(0, 0, 0)){
+			force += -k * (length(leftDir) - restLength) * normalize(leftDir);}
+	} 
+	// right
+	if (index % width < width - 1){
+		vec3 rightDir = particleIn.position - particlesIn[index + 1].position;
+		if (rightDir != vec3(0, 0, 0)){
+			force += -k * (length(rightDir) - restLength) * normalize(rightDir);}
+	}
+	
+	if (particleIn.velocity != vec3(0, 0, 0)) {
+		force += -.7 * particleIn.velocity;
+	}
+	
+	/*float anchor = 10;
+	if (index == 0){
+	  force += anchor * vec3(-1, -1, 0);
+	}
+	if (index == width / 2){
+	  force += anchor * vec3(0, -1, 0);
+	}
+	if (index == width - 1){
+	  force += anchor * vec3(1, -1, 0);
+	}
+	if (index == particlesIn.length() - width){
+	  force += anchor * vec3(-1, 1, 0);
+	}
+	if (index == particlesIn.length() - width / 2){
+	  force += anchor * vec3(0, 1, 0);
+	}
+	if (index == particlesIn.length() - 1){
+	  force += anchor * vec3(1, 1, 0);
+	}*/
+	
+	float theta = (PI / 2) * cos(length(particleIn.position)) + PI / 2;
+	vec3 vectorField = mat3(
+		cos(theta), -sin(theta), 0,
+		sin(theta), cos(theta), 0,
+		0, 0, 1) * vec3(-particleIn.position.y, particleIn.position.x, 0);
+	
+	if (vectorField != vec3(0, 0, 0)) {
+		force += 2 * normalize(vectorField);
+	}
+	
+	
+	float t = max(min(ubo.deltaTime, .01), .000001);
+	particlesOut[index].position = (force - particleIn.acceleration) / (6 * t) * t * t * t + particleIn.acceleration / 2 * t * t + velocity * t + particleIn.position;
+	particlesOut[index].velocity = (force - particleIn.acceleration) / (2 * t) * t * t + particleIn.acceleration * t + velocity;
+	particlesOut[index].acceleration = force;
+}

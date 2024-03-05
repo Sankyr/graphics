@@ -6,3 +6,8 @@ struct UniformBufferObject {
     glm::mat4 view;
     glm::mat4 proj;
 };
+
+struct TimeBufferObject {
+    float time;
+    float deltaTime;
+};
