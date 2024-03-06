@@ -7,6 +7,7 @@
 #include "SwapChainSetupInfo.h"
 #include "UniformBufferObject.h"
 #include "Vertex.h"
+#include "FirstPersonController.h"
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan.hpp>
@@ -91,4 +92,5 @@ private:
     size_t frameNum_ = 0;
     bool framebufferResized_ = false;
     int count = 0;
+    // FirstPersonController fpcon_;
 };

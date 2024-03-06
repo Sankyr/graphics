@@ -50,6 +50,8 @@ const std::vector<const char*> deviceExtensions = {
 
 std::chrono::steady_clock::time_point prevTime;
 
+FirstPersonController fpcon;
+
 void displayExtensions() {
     std::vector<vk::ExtensionProperties> extensions = vk::enumerateInstanceExtensionProperties();
     std::cout << "available extensions:\n";
@@ -1299,11 +1301,12 @@ void recordCommandBuffer(
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, static_cast<uint32_t>(0), descriptorSet, {});
     commandBuffer.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, particleGraphicsPipeline);
+    /*commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, particleGraphicsPipeline);
     commandBuffer.pushConstants(computePipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(float), &scale);
 
     commandBuffer.bindVertexBuffers(0, 1, &particleBuffer, offsets);
     commandBuffer.draw(PARTICLE_COUNT, 1, 0, 0);
+    */
     commandBuffer.endRenderPass();
 
     commandBuffer.end();
@@ -1328,8 +1331,10 @@ void updateUniformBuffer(const vk::Device device, const vk::Extent2D& swapChainE
     float deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - prevTime).count();
 
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(15.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    // ubo.model = glm::rotate(glm::rotate(glm::mat4(1.0f), time * glm::radians(15.0f), glm::vec3(0.0f, 1.0f, 0.0f)), glm::radians(270.0f), glm::vec3(1, 0, 0));
+    ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(270.0f), glm::vec3(1, 0, 0));
+    ubo.view = fpcon.getViewMatrix();
+    // .view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
     ubo.proj[1][1] *= -1;
     /*ubo.model = glm::mat4(1.0f);
@@ -1545,6 +1550,10 @@ void scrollCallback(GLFWwindow* window, double xoffset, double yoffset){
         app->scale *= .99 * abs(yoffset);
     }
 }
+
+void cursorCallback(GLFWwindow* window, double xpos, double ypos) {
+    fpcon.onMouseDrag(window, xpos, ypos);
+}
 // end static
     
 GLFWwindow* HelloTriangleApplication::initWindow() {
@@ -1557,6 +1566,7 @@ GLFWwindow* HelloTriangleApplication::initWindow() {
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetScrollCallback(window, scrollCallback);
+    glfwSetCursorPosCallback(window, cursorCallback);
     // glfwSetWindowRefreshCallback(window_, windowRefreshCallback);
     // glfwSetWindowPosCallback(window_, windowPosCallback);
     // glfwSetWindowSizeCallback(window_, windowSizeCallback);
@@ -1719,6 +1729,8 @@ void HelloTriangleApplication::mainLoop() {
     while (!glfwWindowShouldClose(window_)) {
         // std::cout << "\r" << count;
         glfwPollEvents();
+
+        fpcon.update(window_);
 
         // Also can be set in resize callback
         framebufferResized_ |= drawFrame(device_, swapChain_, graphicsComputeQueue_, presentQueue_, swapChainExtent_, frameRenderingInfos_[frameNum_ % MAX_FRAMES_IN_FLIGHT],

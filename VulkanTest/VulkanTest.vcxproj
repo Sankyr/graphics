@@ -186,6 +186,7 @@
     <ClCompile Include="AllocatedGPUMemory.cpp" />
     <ClCompile Include="DebugMessenger.cpp" />
     <ClCompile Include="DeviceQueries.cpp" />
+    <ClCompile Include="FirstPersonController.cpp" />
     <ClCompile Include="FrameRenderingInfo.cpp" />
     <ClCompile Include="HelloTriangleApplication.cpp" />
     <ClCompile Include="main.cpp" />
@@ -198,6 +199,7 @@
     <ClInclude Include="AllocatedGPUMemory.h" />
     <ClInclude Include="DebugMessenger.h" />
     <ClInclude Include="DeviceQueries.h" />
+    <ClInclude Include="FirstPersonController.h" />
     <ClInclude Include="FrameRenderingInfo.h" />
     <ClInclude Include="HelloTriangleApplication.h" />
     <ClInclude Include="Particle.h" />
